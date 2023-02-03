@@ -1,2 +1,2 @@
 # abortion-laws-by-state-map
-An interactive map displaying abortion laws by state in the U.S.
+An interactive map showing abortion laws by state in the U.S., as well as the percentage of counties per state with no abortion provider.
