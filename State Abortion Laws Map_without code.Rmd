@@ -1,0 +1,216 @@
+---
+title: "Abortion Laws by U.S. State"
+always_allow_html: yes
+output:
+  html_document: default
+  pdf_document: default
+---
+
+* Click on a state to reveal information.
+* Click and drag to move around the map.
+* Use + and - buttons on the left to zoom in and out.
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("/Users/danya/Documents/5. Programming/R Projects/State Abortion Laws Interactive Map")
+
+library(tidyverse)
+library(ggplot2)
+library(shiny)
+library(shinydashboard)
+library(leaflet)
+library(sf)
+library(htmltools)
+library(htmlwidgets)
+library(RColorBrewer)
+library(scales)
+library(usmap)
+library(rvest)
+library(maps)
+library(mapdata)
+library(magrittr)
+library(rgdal)
+library(geojsonio)
+library(stringi)
+
+# helpful sources on creating leaflet maps: 
+## https://stackoverflow.com/questions/72058255/add-a-title-and-description-to-leaflet-map
+## https://data.library.virginia.edu/data-scientist-as-cartographer-an-introduction-to-making-interactive-maps-in-r-with-leaflet/
+## https://www.computerworld.com/article/3038270/create-maps-in-r-in-10-fairly-easy-steps.html?page=2
+## https://heds.nz/posts/add-titles-layer-control-box-leaflet-r/
+## https://www.rdocumentation.org/packages/leaflet/versions/2.1.1/topics/addControl
+
+# helpful sources on static US state maps: 
+## https://cran.r-project.org/web/packages/usmap/vignettes/mapping.html
+
+# source for US state shape file: 
+## https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+## Web Scraping Data on Abortion Laws by U.S. State
+
+# importing source
+webpage <- "https://en.wikipedia.org/wiki/Abortion_law_in_the_United_States_by_state"
+
+# importing table from webpage
+table <- webpage %>%
+  read_html() %>%
+  html_node(xpath='//*[@id="mw-content-text"]/div[1]/table[2]') %>%
+  html_table(fill=T)
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+## Data Cleaning
+
+# cleaning up column names
+colnames(table) <- c("state", "on_demand_gestational_limit", "waiting_period", "mandatory_ultrasound", "counseling", "perc_counties_wo_provider", "parental_notification_for_minors", "parental_consent_for_minors")
+
+# reordering columns
+table <- table[, c(1:5,7:8, 6)]
+
+# data cleaning
+table[17,2] <- "Fertilization"
+table[18,2] <- "Fertilization"
+table[32,2] <- "Viability"
+table[43,2] <- "Fertilization"
+table[18,4] <- "24 hours"
+table[49,4] <- "24 hours"
+table[6,6] <- "Yes"
+table[13,6] <- "No"
+table[12,7] <- "One"
+
+table$perc_counties_wo_provider <- str_remove(table$perc_counties_wo_provider,"%")
+table$perc_counties_wo_provider <- as.numeric(table$perc_counties_wo_provider) / 100
+
+
+```
+
+
+```{r, include=FALSE}
+
+## Mapping Abortion Provider Access by State
+
+# using plot_usmap() to plot data onto map of US states
+static_map <- plot_usmap(data = table, values = "perc_counties_wo_provider", color = "red") + 
+  scale_fill_continuous(
+    low = "white", high = "red", name = "% of Counties without an Abortion Provider", label = scales::comma
+  ) + 
+  labs(title = "Abortion Provider Access by State", subtitle = "Source: Wikipedia") +
+  theme(legend.position = "right")
+
+static_map
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, results='hide', echo=FALSE}
+
+## Interactive Map: Abortion Access & Abortion Laws by State
+
+### Loading and Merging Shape File with Abortion Data
+
+# loading states shape file
+states <- read_sf("cb_2021_us_state_500k.shp")
+
+# checking to make sure state names align before merging
+is.element(table$state, states$NAME) %>%
+  all()
+
+# changing the column "state" to "NAME" to merge
+table_2 <- table
+  
+colnames(table_2)[1] <- c("NAME")
+
+# merging abortion table with state shape file
+states_merged <- merge(states, table_2, by = 'NAME', all.x = F)
+
+```
+
+
+
+```{r, message=FALSE, warning=FALSE, results='asis', echo=FALSE}
+
+### Creating the Interactive Map
+
+# making the pop up info
+pop_up_info <- paste0("<B>State: </B>", states_merged$NAME,"<br/>",
+                      "<i>Percent of Counties with no Abortion Provider: </i>", percent(states_merged$perc_counties_wo_provider),"<br/>",
+                      "<i>On-Demand Gestation Limit: </i>", states_merged$on_demand_gestational_limit,"<br/>",
+                      "<i>Waiting Period: </i>", states_merged$waiting_period,"<br/>",
+                      "<i>Mandatory Ultrasound: </i>", states_merged$mandatory_ultrasound,"<br/>",
+                      "<i>Counseling: </i>", states_merged$counseling,"<br/>",
+                      "<i>Parental Notification for Minors: </i>", states_merged$parental_notification_for_minors,"<br/>",
+                      "<i>Parental Consent for Minors: </i>", states_merged$parental_consent_for_minors)
+
+# making a color palette for the leaflet map
+mypalette <- colorNumeric(palette = "Reds", domain = states_merged$perc_counties_wo_provider)
+
+# getting underlying US map  
+map_base <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.PositronNoLabels)  %>%
+  setView(lng = -96.25, lat = 39.50, zoom = 4)
+
+# making a title for the map
+tag.map.title <- tags$style(HTML("
+  .leaflet-control.map-title { 
+    transform: translate(-50%,20%);
+    position: fixed !important;
+    left: 50%;
+    text-align: center;
+    padding-left: 10px; 
+    padding-right: 10px; 
+    background: rgba(255,255,255,0.75);
+    font-weight: bold;
+    font-size: 20px;
+  }
+"))
+
+title <- tags$div(
+  tag.map.title, HTML("Abortion Laws by U.S. State")
+)  
+
+# making a subtitle 
+tag.map.subtitle <- tags$style(HTML("
+  .leaflet-control.map-subtitle { 
+    transform: translate(-40%,10%);
+    position: fixed !important;
+    left: 50%;
+    text-align: center;
+    padding-left: 5px; 
+    padding-right: 5px; 
+    background: rgba(255,255,255,0.75);
+    font-weight: none;
+    font-size: 2px;
+  }
+"))
+
+subtitle <- tags$div(
+  tag.map.title, HTML("Source: wikipedia.org/wiki/Abortion_law_in_the_United_States_by_state")
+) 
+
+# adding interactive elements to the map
+map_interactive <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.PositronNoLabels)  %>%
+  setView(lng = -96.25, lat = 39.50, zoom = 4) %>%
+  addPolygons(data = states_merged,
+              weight = 1,
+              popup = pop_up_info,
+              color = ~mypalette(states_merged$perc_counties_wo_provider)) #%>%
+  #addControl(title, position = "topleft", className = "map-title") %>%
+  #addControl(subtitle, position = "bottomleft", className = "map-subtitle")
+
+map_interactive
+
+```
+
+_Created By: Danya Sherbini_
+
+_Source: wikipedia.org/wiki/Abortion_law_in_the_United_States_by_state_
