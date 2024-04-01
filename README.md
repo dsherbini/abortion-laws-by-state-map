@@ -1,3 +1,3 @@
-# abortion-laws-by-state-map
+# Mapping Reproductive Rights Laws in the US
 An interactive map showing abortion laws by state in the U.S., as well as the percentage of counties per state with no abortion provider.
 [View map here.](http://rpubs.com/danyasherbini/998749)
